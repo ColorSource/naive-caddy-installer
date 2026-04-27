@@ -123,7 +123,7 @@ get_external_ip() {
 }
 
 check_dns() {
-    local domain="$1" external_ip resolved_ip
+    local domain="$1" external_ip resolved_ips
     log "Checking DNS for $domain..."
 
     if ! external_ip="$(get_external_ip)"; then
@@ -133,21 +133,22 @@ check_dns() {
     log "Server external IP: $external_ip"
 
     require_cmd dig
-    resolved_ip="$(dig +short A "$domain" @1.1.1.1 | tail -n1)"
-    if [[ -z "$resolved_ip" ]]; then
+    resolved_ips="$(dig +short A "$domain" @1.1.1.1)"
+    if [[ -z "$resolved_ips" ]]; then
         warn "Domain $domain has no A-record (or DNS not yet propagated)."
         confirm "Continue anyway (ACME will fail until DNS resolves)" default-no \
             || die "Aborted by user. Configure DNS A-record first."
         return 0
     fi
 
-    if [[ "$resolved_ip" != "$external_ip" ]]; then
-        warn "DNS mismatch: $domain → $resolved_ip, but server IP is $external_ip"
+    # Match against the full A-record set: round-robin / multi-A setups must include this server's IP.
+    if printf '%s\n' "$resolved_ips" | grep -Fxq "$external_ip"; then
+        ok "DNS check passed: $domain → $external_ip"
+    else
+        warn "DNS mismatch: $domain resolves to [$(printf '%s' "$resolved_ips" | tr '\n' ' ')], server IP is $external_ip"
         warn "Possible causes: A-record not updated yet; Cloudflare orange-cloud (must be grey)."
         confirm "Continue anyway" default-no \
             || die "Aborted by user. Fix DNS A-record first."
-    else
-        ok "DNS check passed: $domain → $external_ip"
     fi
 }
 
@@ -266,6 +267,9 @@ gather_inputs() {
         DOMAIN="$(prompt_value 'Your domain (must point to this server, no Cloudflare proxy)')"
     fi
 
+    [[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]] \
+        || die "Invalid domain: '$DOMAIN' (expected something like proxy.example.com — no scheme, no port, no path)"
+
     if [[ -n "${NAIVE_MASK_SITE:-}" ]]; then
         MASK_SITE="$NAIVE_MASK_SITE"
         log "Mask site from env: $MASK_SITE"
@@ -297,11 +301,11 @@ enable_bbr() {
     log "Enabling TCP BBR..."
     local sysctl_file=/etc/sysctl.conf
     local changed=0
-    if ! grep -q '^net.core.default_qdisc=fq' "$sysctl_file" 2>/dev/null; then
+    if ! grep -Eq '^[[:space:]]*net\.core\.default_qdisc[[:space:]]*=[[:space:]]*fq([[:space:]]|$)' "$sysctl_file" 2>/dev/null; then
         echo 'net.core.default_qdisc=fq' >> "$sysctl_file"
         changed=1
     fi
-    if ! grep -q '^net.ipv4.tcp_congestion_control=bbr' "$sysctl_file" 2>/dev/null; then
+    if ! grep -Eq '^[[:space:]]*net\.ipv4\.tcp_congestion_control[[:space:]]*=[[:space:]]*bbr([[:space:]]|$)' "$sysctl_file" 2>/dev/null; then
         echo 'net.ipv4.tcp_congestion_control=bbr' >> "$sysctl_file"
         changed=1
     fi
@@ -364,8 +368,10 @@ build_caddy() {
     "${GOPATH}/bin/xcaddy" build \
         --with github.com/caddyserver/forwardproxy=github.com/klzgrad/forwardproxy@naive
     [[ -x ./caddy ]] || die "xcaddy build failed: ./caddy not produced"
-    BUILT_CADDY_BIN="${build_dir}/caddy"
+    BUILT_CADDY_BIN="${TMP_BUILD_DIR}/caddy.new"
+    install -m 0755 ./caddy "$BUILT_CADDY_BIN"
     popd >/dev/null
+    rm -rf "$build_dir"
     ok "Caddy built: $BUILT_CADDY_BIN"
 }
 
@@ -376,6 +382,7 @@ install_caddy_binary() {
         systemctl stop caddy
     fi
     install -m 0755 "$BUILT_CADDY_BIN" "$CADDY_BIN"
+    rm -f "$BUILT_CADDY_BIN"
     ok "Installed: $($CADDY_BIN version | head -n1)"
 }
 
@@ -425,14 +432,13 @@ Requires=network-online.target
 Type=notify
 User=root
 Group=root
-ExecStart=/usr/bin/caddy run --environ --config /etc/caddy/Caddyfile
-ExecReload=/usr/bin/caddy reload --config /etc/caddy/Caddyfile --force
+ExecStart=/usr/bin/caddy run --config /etc/caddy/Caddyfile
+ExecReload=/usr/bin/caddy reload --config /etc/caddy/Caddyfile
 TimeoutStopSec=5s
 LimitNOFILE=1048576
 LimitNPROC=512
 PrivateTmp=true
 ProtectSystem=full
-AmbientCapabilities=CAP_NET_BIND_SERVICE
 Restart=always
 RestartSec=5s
 
@@ -485,9 +491,9 @@ save_credentials_file() {
 # NaiveProxy credentials — generated $(date -Iseconds)
 # Domain:    ${DOMAIN}
 # Mask site: ${MASK_SITE}
-NAIVE_USER=${NAIVE_USER}
-NAIVE_PASS=${NAIVE_PASS}
-NAIVE_URL=naive+https://${NAIVE_USER}:${NAIVE_PASS}@${DOMAIN}:443?padding=1#NaiveProxy
+NAIVE_USER='${NAIVE_USER}'
+NAIVE_PASS='${NAIVE_PASS}'
+NAIVE_URL='naive+https://${NAIVE_USER}:${NAIVE_PASS}@${DOMAIN}:443?padding=1#NaiveProxy'
 EOF
     chmod 600 "$CRED_FILE"
 }
