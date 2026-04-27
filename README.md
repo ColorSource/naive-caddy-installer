@@ -125,6 +125,10 @@ Edit `/etc/caddy/Caddyfile` then `systemctl reload caddy` to change domain / mas
 - No `apt upgrade` — risky on a loaded VPS without a snapshot
 - No RHEL/Arch/Alpine support — Debian/Ubuntu only
 
+## Already running 3x-ui Pro on this VPS?
+
+`setup.sh` clashes with [3x-ui Pro](https://github.com/mozaroc/x-ui-pro) — both want exclusive `:443`. Use [`3x-ui/setup.sh`](3x-ui/) instead, which plugs Caddy in as a third SNI upstream behind the existing nginx. See [`3x-ui/README.md`](3x-ui/README.md).
+
 ## Sources
 
 - Canonical klzgrad-stack gist: [swrneko/09e60de4d3d8f9a551a1a2c1ab9283c5](https://gist.github.com/swrneko/09e60de4d3d8f9a551a1a2c1ab9283c5)
