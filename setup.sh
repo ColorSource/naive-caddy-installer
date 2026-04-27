@@ -488,7 +488,10 @@ wait_for_caddy_active() {
             die "Aborting. Inspect logs above (often: ACME error, port conflict, DNS misconfig)."
         fi
         sleep 2
-        ((i++))
+        # Pre-increment: returns the NEW value (never 0 here), so it can't trip
+        # `set -e` on iteration 1 the way `((i++))` would (post-increment returns
+        # the OLD value 0 → exit 1 → script dies silently before cert arrives).
+        ((++i))
     done
     warn "Caddy did not respond on https://${DOMAIN} within 120s."
     warn "Recent logs:"
