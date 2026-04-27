@@ -278,8 +278,15 @@ gather_inputs() {
         MASK_SITE="$(prompt_value 'Mask site URL (used as cover when probed; see README)' "$DEFAULT_MASK_SITE")"
     fi
 
-    # Sanity-check mask-site format.
-    [[ "$MASK_SITE" =~ ^https?:// ]] || die "Mask site must start with http:// or https://: $MASK_SITE"
+    # Caddy's reverse_proxy upstream accepts only scheme://host[:port] — no path,
+    # query, fragment, or trailing slash. Strip anything past the host[:port].
+    local mask_clean
+    mask_clean="$(printf '%s' "$MASK_SITE" | sed -E 's|^(https?://[^/?#]+).*$|\1|')"
+    [[ "$mask_clean" =~ ^https?://[^/?#]+$ ]] || die "Mask site must start with http:// or https:// and contain a host: $MASK_SITE"
+    if [[ "$mask_clean" != "$MASK_SITE" ]]; then
+        log "Stripped path/slash from mask site: $MASK_SITE → $mask_clean"
+        MASK_SITE="$mask_clean"
+    fi
 }
 
 #─────────────────────────────────────────────────────────────────────────────
@@ -287,14 +294,21 @@ gather_inputs() {
 #─────────────────────────────────────────────────────────────────────────────
 
 install_dependencies() {
-    log "Installing apt dependencies..."
+    local pkgs=(curl wget ca-certificates dnsutils iproute2 procps openssl tar qrencode)
+    local missing=()
+    for pkg in "${pkgs[@]}"; do
+        if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q '^install ok installed$'; then
+            missing+=("$pkg")
+        fi
+    done
+    if (( ${#missing[@]} == 0 )); then
+        ok "apt dependencies already installed (skipping)"
+        return 0
+    fi
+    log "Installing apt dependencies (${missing[*]})..."
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    apt-get install -y -qq \
-        curl wget ca-certificates \
-        dnsutils iproute2 procps \
-        openssl tar \
-        qrencode >/dev/null
+    apt-get install -y -qq "${missing[@]}" >/dev/null
     ok "apt dependencies installed"
 }
 
