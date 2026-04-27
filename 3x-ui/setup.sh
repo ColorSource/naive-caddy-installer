@@ -493,8 +493,8 @@ write_caddyfile() {
     }
 }
 
-https://${DOMAIN} {
-    bind 127.0.0.1:${BACKEND_PORT}
+:${BACKEND_PORT} {
+    bind 127.0.0.1
 
     tls ${LE_DIR}/${DOMAIN}/fullchain.pem ${LE_DIR}/${DOMAIN}/privkey.pem
 
