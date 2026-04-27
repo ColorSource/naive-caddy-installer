@@ -77,6 +77,7 @@ readonly CADDY_DIR="/etc/caddy"
 readonly CADDYFILE="${CADDY_DIR}/Caddyfile"
 readonly CRED_FILE="${CADDY_DIR}/credentials.txt"
 readonly CLIENT_CONFIG="/root/naive-client-config.json"
+readonly SINGBOX_CONFIG="/root/naive-singbox.json"
 readonly SYSTEMD_UNIT="/etc/systemd/system/caddy.service"
 readonly TMP_BUILD_DIR="/root/tmp"
 readonly GO_INSTALL_DIR="/usr/local/go"
@@ -508,6 +509,32 @@ EOF
     chmod 600 "$CLIENT_CONFIG"
 }
 
+write_singbox_config() {
+    cat > "$SINGBOX_CONFIG" <<EOF
+{
+  "outbounds": [
+    {
+      "type": "naive",
+      "tag": "NaiveProxy",
+      "server": "${DOMAIN}",
+      "server_port": 443,
+      "username": "${NAIVE_USER}",
+      "password": "${NAIVE_PASS}",
+      "tls": {
+        "enabled": true,
+        "server_name": "${DOMAIN}",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    }
+  ]
+}
+EOF
+    chmod 600 "$SINGBOX_CONFIG"
+}
+
 print_summary() {
     local uri="naive+https://${NAIVE_USER}:${NAIVE_PASS}@${DOMAIN}:443?padding=1#NaiveProxy"
 
@@ -540,25 +567,10 @@ print_summary() {
     qrencode -t UTF8 -m 2 "$uri" | sed 's/^/    /'
     echo
 
-    printf '%ssing-box outbound JSON%s (for Karing / sing-box-for-android — paste into outbounds[]):\n' "$C_BOLD" "$C_RST"
-    cat <<EOF | sed 's/^/    /'
-{
-  "type": "naive",
-  "tag": "NaiveProxy",
-  "server": "${DOMAIN}",
-  "server_port": 443,
-  "username": "${NAIVE_USER}",
-  "password": "${NAIVE_PASS}",
-  "tls": {
-    "enabled": true,
-    "server_name": "${DOMAIN}",
-    "utls": {
-      "enabled": true,
-      "fingerprint": "chrome"
-    }
-  }
-}
-EOF
+    printf '%ssing-box config%s (for Karing / sing-box-for-android — import as profile):\n' "$C_BOLD" "$C_RST"
+    printf '  saved to: %s\n' "$SINGBOX_CONFIG"
+    printf '  contents:\n'
+    sed 's/^/    /' "$SINGBOX_CONFIG"
     echo
 
     printf '%sFinal check%s — from your client (after launching naive CLI):\n' "$C_BOLD" "$C_RST"
@@ -623,6 +635,7 @@ main() {
 
     save_credentials_file
     write_client_config
+    write_singbox_config
     print_summary
 }
 
