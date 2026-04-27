@@ -583,7 +583,7 @@ server {
     ssl_preread     on;
 }
 EOF
-    install -m 0644 "$NGINX_STREAM_CONF" "$STREAM_FRAGMENT"
+    install -D -m 0644 "$NGINX_STREAM_CONF" "$STREAM_FRAGMENT"
     nginx -t >/dev/null 2>&1 || die "nginx -t failed after patching stream.conf. Check $NGINX_STREAM_CONF."
     systemctl reload nginx
     ok "nginx stream.conf patched and nginx reloaded"
