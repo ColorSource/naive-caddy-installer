@@ -177,8 +177,47 @@ check_ports() {
     ok "Ports :80 and :443 are free"
 }
 
+uninstall_caddy_naive() {
+    warn "This will remove Caddy/NaiveProxy files managed by this script."
+    warn "It removes: caddy.service, ${CADDY_BIN}, ${CADDY_DIR}, ${CLIENT_CONFIG}, and ${SINGBOX_CONFIG}."
+    warn "It can also remove the default static cover directory: ${DEFAULT_STATIC_ROOT}."
+    warn "It does NOT remove Go (${GO_INSTALL_DIR}) or your DNS/firewall settings."
+    confirm "Continue uninstall" default-no || die "Aborted by user."
+
+    local static_root_to_remove=""
+    if [[ -s "$CADDYFILE" ]]; then
+        static_root_to_remove="$(awk '/^[[:space:]]*root[[:space:]]+\*[[:space:]]/ {print $3; exit}' "$CADDYFILE")"
+    fi
+    static_root_to_remove="${static_root_to_remove:-$DEFAULT_STATIC_ROOT}"
+
+    if systemctl list-unit-files caddy.service >/dev/null 2>&1; then
+        log "Stopping and disabling caddy.service..."
+        systemctl stop caddy 2>/dev/null || true
+        systemctl disable caddy >/dev/null 2>&1 || true
+    fi
+
+    log "Removing Caddy service, binary, and generated configs..."
+    rm -f "$SYSTEMD_UNIT"
+    rm -f "$CADDY_BIN"
+    rm -rf "$CADDY_DIR"
+    rm -f "$CLIENT_CONFIG" "$SINGBOX_CONFIG"
+    systemctl daemon-reload
+    systemctl reset-failed caddy.service >/dev/null 2>&1 || true
+
+    if [[ -d "$static_root_to_remove" ]]; then
+        if confirm "Remove static cover directory ${static_root_to_remove}" default-no; then
+            rm -rf "$static_root_to_remove"
+            ok "Removed ${static_root_to_remove}"
+        else
+            warn "Kept ${static_root_to_remove}"
+        fi
+    fi
+
+    ok "Uninstall complete."
+}
+
 handle_existing_caddy() {
-    # Returns mode via stdout: "rebuild" | "reconfigure" | "reuse" | "fresh"
+    # Returns mode via stdout: "rebuild" | "reconfigure" | "reuse" | "uninstall" | "fresh"
     if [[ ! -x "$CADDY_BIN" ]] && ! systemctl list-unit-files caddy.service >/dev/null 2>&1; then
         echo "fresh"
         return 0
@@ -198,18 +237,20 @@ handle_existing_caddy() {
     echo "  2) Keep existing Caddy binary + regenerate Caddyfile (new credentials), restart" >&2
     if [[ "$has_caddyfile" -eq 1 ]]; then
         echo "  3) Reuse existing Caddyfile and credentials, just restart" >&2
-        echo "  4) Exit, leave system untouched" >&2
+        echo "  4) Uninstall Caddy/NaiveProxy files managed by this script" >&2
+        echo "  5) Exit, leave system untouched" >&2
     else
-        echo "  3) Exit, leave system untouched" >&2
+        echo "  3) Uninstall Caddy/NaiveProxy files managed by this script" >&2
+        echo "  4) Exit, leave system untouched" >&2
         echo "     (option to reuse existing Caddyfile is unavailable: ${CADDYFILE} missing or empty)" >&2
     fi
     echo "" >&2
 
     local choice prompt
     if [[ "$has_caddyfile" -eq 1 ]]; then
-        prompt="Enter 1, 2, 3 or 4: "
+        prompt="Enter 1, 2, 3, 4 or 5: "
     else
-        prompt="Enter 1, 2 or 3: "
+        prompt="Enter 1, 2, 3 or 4: "
     fi
 
     while true; do
@@ -222,10 +263,19 @@ handle_existing_caddy() {
                     echo "reuse"
                     return 0
                 else
-                    die "Exited by user choice."
+                    echo "uninstall"
+                    return 0
                 fi
                 ;;
             4)
+                if [[ "$has_caddyfile" -eq 1 ]]; then
+                    echo "uninstall"
+                    return 0
+                else
+                    die "Exited by user choice."
+                fi
+                ;;
+            5)
                 if [[ "$has_caddyfile" -eq 1 ]]; then
                     die "Exited by user choice."
                 else
@@ -721,6 +771,11 @@ main() {
 
     MODE="$(handle_existing_caddy)"
     log "Install mode: $MODE"
+
+    if [[ "$MODE" == "uninstall" ]]; then
+        uninstall_caddy_naive
+        exit 0
+    fi
 
     if [[ "$MODE" == "reuse" ]]; then
         parse_existing_caddyfile

@@ -93,6 +93,21 @@ journalctl -u caddy -f
 cat /etc/caddy/credentials.txt
 ```
 
+## Uninstall
+
+If Caddy is already installed, rerun the installer and choose the uninstall option from the existing-install menu.
+
+The uninstall option removes:
+
+- `caddy.service`
+- `/usr/bin/caddy`
+- `/etc/caddy/`
+- `/root/naive-client-config.json`
+- `/root/naive-singbox.json`
+- optionally `/var/www/naive-cover`
+
+It does not remove Go, DNS records, or firewall rules.
+
 ## Notes
 
 - Do not enable Cloudflare orange-cloud proxy for the NaiveProxy domain.
