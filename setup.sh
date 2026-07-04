@@ -586,6 +586,10 @@ main() {
     ARCH="$(detect_arch)"
     ok "Architecture: $ARCH"
 
+    echo
+    log "This installer will build and install Caddy with NaiveProxy, write /etc/caddy/Caddyfile, create caddy.service, and request a Let's Encrypt certificate."
+    confirm "Continue with installation" default-no || die "Aborted by user."
+
     install_dependencies
 
     MODE="$(handle_existing_caddy)"
