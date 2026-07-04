@@ -764,18 +764,22 @@ main() {
     detect_os
     ARCH="$(detect_arch)"
     ok "Architecture: $ARCH"
-    log "This installer will build and install Caddy with NaiveProxy, write /etc/caddy/Caddyfile, create caddy.service, and request a Let's Encrypt certificate."
-    confirm "Continue with installation" default-no || die "Aborted by user."
 
-    install_dependencies
-
-    MODE="$(handle_existing_caddy)"
+    if [[ -x "$CADDY_BIN" ]] || systemctl list-unit-files caddy.service >/dev/null 2>&1; then
+        MODE="$(handle_existing_caddy)"
+    else
+        log "This installer will build and install Caddy with NaiveProxy, write /etc/caddy/Caddyfile, create caddy.service, and request a Let's Encrypt certificate."
+        confirm "Continue with installation" default-no || die "Aborted by user."
+        MODE="fresh"
+    fi
     log "Install mode: $MODE"
 
     if [[ "$MODE" == "uninstall" ]]; then
         uninstall_caddy_naive
         exit 0
     fi
+
+    install_dependencies
 
     if [[ "$MODE" == "reuse" ]]; then
         parse_existing_caddyfile
