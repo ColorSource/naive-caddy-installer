@@ -4,7 +4,6 @@ One-command installer for [NaïveProxy](https://github.com/klzgrad/naiveproxy) +
 
 ## What it does
 
-- Enables TCP BBR
 - Installs the latest stable Go (resolved from go.dev)
 - Builds Caddy with `klzgrad/forwardproxy@naive` via `xcaddy`
 - Generates 16-char alphanumeric credentials

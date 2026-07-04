@@ -312,30 +312,6 @@ install_dependencies() {
     ok "apt dependencies installed"
 }
 
-enable_bbr() {
-    log "Enabling TCP BBR..."
-    local sysctl_file=/etc/sysctl.conf
-    local changed=0
-    if ! grep -Eq '^[[:space:]]*net\.core\.default_qdisc[[:space:]]*=[[:space:]]*fq([[:space:]]|$)' "$sysctl_file" 2>/dev/null; then
-        echo 'net.core.default_qdisc=fq' >> "$sysctl_file"
-        changed=1
-    fi
-    if ! grep -Eq '^[[:space:]]*net\.ipv4\.tcp_congestion_control[[:space:]]*=[[:space:]]*bbr([[:space:]]|$)' "$sysctl_file" 2>/dev/null; then
-        echo 'net.ipv4.tcp_congestion_control=bbr' >> "$sysctl_file"
-        changed=1
-    fi
-    if [[ "$changed" -eq 1 ]]; then
-        sysctl -p >/dev/null
-    fi
-    local cc
-    cc="$(sysctl -n net.ipv4.tcp_congestion_control)"
-    if [[ "$cc" == "bbr" ]]; then
-        ok "BBR active (tcp_congestion_control=$cc)"
-    else
-        warn "BBR not active (tcp_congestion_control=$cc). Kernel may be too old; continuing."
-    fi
-}
-
 install_go() {
     local latest tarball url
     log "Resolving latest stable Go version..."
@@ -633,7 +609,6 @@ main() {
     fi
 
     check_ports
-    enable_bbr
 
     if [[ "$MODE" == "rebuild" || "$MODE" == "fresh" ]]; then
         install_go
