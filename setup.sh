@@ -71,7 +71,9 @@ require_cmd() {
 # Constants
 #─────────────────────────────────────────────────────────────────────────────
 
+readonly DEFAULT_COVER_MODE="static"
 readonly DEFAULT_MASK_SITE="https://www.lovense.com"
+readonly DEFAULT_STATIC_ROOT="/var/www/naive-cover"
 readonly CADDY_BIN="/usr/bin/caddy"
 readonly CADDY_DIR="/etc/caddy"
 readonly CADDYFILE="${CADDY_DIR}/Caddyfile"
@@ -236,13 +238,22 @@ handle_existing_caddy() {
 }
 
 parse_existing_caddyfile() {
-    # Populates DOMAIN, MASK_SITE, NAIVE_USER, NAIVE_PASS from the existing Caddyfile.
-    # Expects the format this script writes; bails out otherwise.
+    # Populates DOMAIN, COVER_MODE, MASK_SITE/STATIC_ROOT, NAIVE_USER, NAIVE_PASS
+    # from the existing Caddyfile. Expects a format this script writes.
     local f="$CADDYFILE"
     [[ -s "$f" ]] || die "Cannot reuse: ${f} missing or empty"
 
     DOMAIN="$(awk '/^:443,/ {sub(/^:443,[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print; exit}' "$f")"
     MASK_SITE="$(awk '/^[[:space:]]*reverse_proxy[[:space:]]/ {print $2; exit}' "$f")"
+    STATIC_ROOT="$(awk '/^[[:space:]]*root[[:space:]]+\*[[:space:]]/ {print $3; exit}' "$f")"
+
+    if [[ -n "$MASK_SITE" ]]; then
+        COVER_MODE="proxy"
+    elif [[ -n "$STATIC_ROOT" ]]; then
+        COVER_MODE="static"
+    else
+        die "Failed to parse cover mode from ${f} (expected 'reverse_proxy <url>' or 'root * <path>')"
+    fi
 
     local creds_line
     creds_line="$(awk '/^[[:space:]]*basic_auth[[:space:]]/ {print $2, $3; exit}' "$f")"
@@ -250,7 +261,6 @@ parse_existing_caddyfile() {
     NAIVE_PASS="${creds_line##* }"
 
     [[ -n "$DOMAIN"     ]] || die "Failed to parse domain from ${f} (expected ':443, <domain>' line)"
-    [[ -n "$MASK_SITE"  ]] || die "Failed to parse mask site from ${f} (expected 'reverse_proxy <url>' line)"
     [[ -n "$NAIVE_USER" && -n "$NAIVE_PASS" && "$NAIVE_USER" != "$NAIVE_PASS" ]] \
         || die "Failed to parse credentials from ${f} (expected 'basic_auth <user> <pass>' line)"
 }
@@ -259,34 +269,90 @@ parse_existing_caddyfile() {
 # Inputs
 #─────────────────────────────────────────────────────────────────────────────
 
+normalize_cover_mode() {
+    local mode="${1,,}"
+    case "$mode" in
+        1|static|local) echo "static" ;;
+        2|proxy|reverse-proxy|reverse_proxy) echo "proxy" ;;
+        *) return 1 ;;
+    esac
+}
+
+choose_cover_mode() {
+    local choice mode
+    echo "Choose cover mode:" >&2
+    echo "  1) Local static site (served from ${DEFAULT_STATIC_ROOT})" >&2
+    echo "  2) Reverse proxy a cover site" >&2
+    while true; do
+        read -r -p "Enter 1 or 2 [${DEFAULT_COVER_MODE}]: " choice </dev/tty || return 1
+        choice="${choice:-$DEFAULT_COVER_MODE}"
+        if mode="$(normalize_cover_mode "$choice")"; then
+            printf '%s' "$mode"
+            return 0
+        fi
+        echo "Please enter 1 or 2." >&2
+    done
+}
+
+validate_mask_site() {
+    # Caddy's reverse_proxy upstream accepts only scheme://host[:port] — no path,
+    # query, fragment, whitespace, or trailing slash. Strip anything past the host[:port].
+    local mask_clean
+    mask_clean="$(printf '%s' "$MASK_SITE" | sed -E 's|^(https?://[^[:space:]/?#]+).*$|\1|')"
+    [[ "$mask_clean" =~ ^https?://[^[:space:]/?#]+$ ]] || die "Mask site must start with http:// or https:// and contain a host: $MASK_SITE"
+    if [[ "$mask_clean" != "$MASK_SITE" ]]; then
+        log "Stripped path/slash from mask site: $MASK_SITE → $mask_clean"
+        MASK_SITE="$mask_clean"
+    fi
+}
+
+validate_static_root() {
+    [[ "$STATIC_ROOT" == /var/www/* || "$STATIC_ROOT" == /srv/* ]] \
+        || die "Static site root must be under /var/www/ or /srv/: $STATIC_ROOT"
+    [[ "$STATIC_ROOT" != *[[:space:]]* ]] \
+        || die "Static site root must not contain whitespace: $STATIC_ROOT"
+}
+
 gather_inputs() {
-    # Populates globals: DOMAIN, MASK_SITE
+    # Populates globals: DOMAIN, COVER_MODE, MASK_SITE or STATIC_ROOT
     if [[ -n "${NAIVE_DOMAIN:-}" ]]; then
         DOMAIN="$NAIVE_DOMAIN"
         log "Domain from env: $DOMAIN"
     else
-        DOMAIN="$(prompt_value 'Your domain (must point to this server, no Cloudflare proxy)')"
+        DOMAIN="$(prompt_value 'Domain for NaiveProxy (DNS-only, points to this server)')"
     fi
 
     [[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]] \
         || die "Invalid domain: '$DOMAIN' (expected something like proxy.example.com — no scheme, no port, no path)"
 
-    if [[ -n "${NAIVE_MASK_SITE:-}" ]]; then
-        MASK_SITE="$NAIVE_MASK_SITE"
-        log "Mask site from env: $MASK_SITE"
+    if [[ -n "${NAIVE_COVER_MODE:-}" ]]; then
+        COVER_MODE="$(normalize_cover_mode "$NAIVE_COVER_MODE")" \
+            || die "Invalid NAIVE_COVER_MODE: $NAIVE_COVER_MODE (expected static or proxy)"
+        log "Cover mode from env: $COVER_MODE"
     else
-        MASK_SITE="$(prompt_value 'Mask site URL (used as cover when probed; see README)' "$DEFAULT_MASK_SITE")"
+        COVER_MODE="$(choose_cover_mode)"
     fi
 
-    # Caddy's reverse_proxy upstream accepts only scheme://host[:port] — no path,
-    # query, fragment, or trailing slash. Strip anything past the host[:port].
-    local mask_clean
-    mask_clean="$(printf '%s' "$MASK_SITE" | sed -E 's|^(https?://[^/?#]+).*$|\1|')"
-    [[ "$mask_clean" =~ ^https?://[^/?#]+$ ]] || die "Mask site must start with http:// or https:// and contain a host: $MASK_SITE"
-    if [[ "$mask_clean" != "$MASK_SITE" ]]; then
-        log "Stripped path/slash from mask site: $MASK_SITE → $mask_clean"
-        MASK_SITE="$mask_clean"
-    fi
+    case "$COVER_MODE" in
+        static)
+            if [[ -n "${NAIVE_STATIC_ROOT:-}" ]]; then
+                STATIC_ROOT="$NAIVE_STATIC_ROOT"
+                log "Static site root from env: $STATIC_ROOT"
+            else
+                STATIC_ROOT="$(prompt_value 'Static site root' "$DEFAULT_STATIC_ROOT")"
+            fi
+            validate_static_root
+            ;;
+        proxy)
+            if [[ -n "${NAIVE_MASK_SITE:-}" ]]; then
+                MASK_SITE="$NAIVE_MASK_SITE"
+                log "Mask site from env: $MASK_SITE"
+            else
+                MASK_SITE="$(prompt_value 'Cover site URL to reverse proxy' "$DEFAULT_MASK_SITE")"
+            fi
+            validate_mask_site
+            ;;
+    esac
 }
 
 #─────────────────────────────────────────────────────────────────────────────
@@ -386,6 +452,40 @@ generate_credentials() {
     ok "Credentials generated"
 }
 
+write_static_cover_site() {
+    [[ "$COVER_MODE" == "static" ]] || return 0
+    log "Preparing local static cover site at ${STATIC_ROOT}..."
+    mkdir -p "$STATIC_ROOT"
+    if [[ ! -e "${STATIC_ROOT}/index.html" ]]; then
+        cat > "${STATIC_ROOT}/index.html" <<EOF
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${DOMAIN}</title>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2933; background: #f7f7f5; }
+    main { max-width: 760px; margin: 12vh auto; padding: 0 24px; }
+    h1 { font-size: clamp(2rem, 5vw, 4rem); margin-bottom: 0.25em; }
+    p { font-size: 1.1rem; line-height: 1.65; color: #52606d; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${DOMAIN}</h1>
+    <p>This site is being set up. Please check back later.</p>
+  </main>
+</body>
+</html>
+EOF
+        chmod 0644 "${STATIC_ROOT}/index.html"
+        ok "Default index.html written"
+    else
+        ok "Existing index.html preserved"
+    fi
+}
+
 write_caddyfile() {
     log "Writing ${CADDYFILE}..."
     mkdir -p "$CADDY_DIR"
@@ -401,15 +501,27 @@ route {
     probe_resistance
   }
 
+EOF
+    if [[ "$COVER_MODE" == "static" ]]; then
+        cat >> "$CADDYFILE" <<EOF
+  root * ${STATIC_ROOT}
+  file_server
+EOF
+    else
+        cat >> "$CADDYFILE" <<EOF
   reverse_proxy ${MASK_SITE} {
     header_up Host {upstream_hostport}
     header_up X-Forwarded-Host {host}
   }
+EOF
+    fi
+    cat >> "$CADDYFILE" <<EOF
 }
 EOF
     chmod 600 "$CADDYFILE"
     ok "Caddyfile written"
 }
+
 
 write_systemd_unit() {
     log "Writing ${SYSTEMD_UNIT}..."
@@ -483,8 +595,15 @@ wait_for_caddy_active() {
 save_credentials_file() {
     cat > "$CRED_FILE" <<EOF
 # NaiveProxy credentials — generated $(date -Iseconds)
-# Domain:    ${DOMAIN}
-# Mask site: ${MASK_SITE}
+# Domain:     ${DOMAIN}
+# Cover mode: ${COVER_MODE}
+EOF
+    if [[ "$COVER_MODE" == "static" ]]; then
+        printf '# Static root: %s\n' "$STATIC_ROOT" >> "$CRED_FILE"
+    else
+        printf '# Mask site:   %s\n' "$MASK_SITE" >> "$CRED_FILE"
+    fi
+    cat >> "$CRED_FILE" <<EOF
 NAIVE_USER='${NAIVE_USER}'
 NAIVE_PASS='${NAIVE_PASS}'
 NAIVE_URL='naive+https://${NAIVE_USER}:${NAIVE_PASS}@${DOMAIN}:443?padding=1#NaiveProxy'
@@ -543,6 +662,16 @@ print_summary() {
     printf '  saved to: %s\n' "$CRED_FILE"
     echo
 
+    printf '%sCover site%s\n' "$C_BOLD" "$C_RST"
+    printf '  mode: %s\n' "$COVER_MODE"
+    if [[ "$COVER_MODE" == "static" ]]; then
+        printf '  static root: %s\n' "$STATIC_ROOT"
+        printf '  edit: %s/index.html\n' "$STATIC_ROOT"
+    else
+        printf '  reverse proxy: %s\n' "$MASK_SITE"
+    fi
+    echo
+
     printf '%sClient config (klzgrad/naive CLI)%s\n' "$C_BOLD" "$C_RST"
     printf '  saved to: %s\n' "$CLIENT_CONFIG"
     printf '  download CLI binary for your OS: https://github.com/klzgrad/naiveproxy/releases\n'
@@ -596,15 +725,25 @@ main() {
     if [[ "$MODE" == "reuse" ]]; then
         parse_existing_caddyfile
         log "Reusing existing Caddyfile:"
-        log "  Domain:    $DOMAIN"
-        log "  Mask site: $MASK_SITE"
-        log "  User/pass: preserved from existing config"
+        log "  Domain:     $DOMAIN"
+        log "  Cover mode: $COVER_MODE"
+        if [[ "$COVER_MODE" == "static" ]]; then
+            log "  Static root: $STATIC_ROOT"
+        else
+            log "  Mask site:   $MASK_SITE"
+        fi
+        log "  User/pass:  preserved from existing config"
     else
         gather_inputs
         echo
         log "About to set up NaiveProxy on this server with:"
-        log "  Domain:    $DOMAIN"
-        log "  Mask site: $MASK_SITE"
+        log "  Domain:     $DOMAIN"
+        log "  Cover mode: $COVER_MODE"
+        if [[ "$COVER_MODE" == "static" ]]; then
+            log "  Static root: $STATIC_ROOT"
+        else
+            log "  Mask site:   $MASK_SITE"
+        fi
         echo
         confirm "Proceed" default-yes || die "Aborted by user."
         check_dns "$DOMAIN"
@@ -620,6 +759,7 @@ main() {
 
     if [[ "$MODE" != "reuse" ]]; then
         generate_credentials
+        write_static_cover_site
         write_caddyfile
     fi
 
