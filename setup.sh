@@ -223,9 +223,19 @@ handle_existing_caddy() {
         return 0
     fi
 
-    warn "Caddy is already installed on this system." >&2
-    if systemctl is-active --quiet caddy 2>/dev/null; then
-        warn "caddy.service is currently active." >&2
+    local service_status="not installed"
+    if systemctl list-unit-files caddy.service >/dev/null 2>&1; then
+        if systemctl is-active --quiet caddy 2>/dev/null; then
+            service_status="active"
+        else
+            service_status="inactive"
+        fi
+    fi
+
+    if [[ -x "$CADDY_BIN" ]]; then
+        warn "Existing Caddy installation detected (service: ${service_status})." >&2
+    else
+        warn "Existing caddy.service detected (service: ${service_status})." >&2
     fi
 
     local has_caddyfile=0
