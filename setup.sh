@@ -233,24 +233,24 @@ handle_existing_caddy() {
 
     echo "" >&2
     echo "Choose action:" >&2
-    echo "  1) Rebuild Caddy from sources + regenerate Caddyfile (new credentials), restart" >&2
-    echo "  2) Keep existing Caddy binary + regenerate Caddyfile (new credentials), restart" >&2
+    echo "  1) Reinstall NaiveProxy" >&2
+    echo "  2) Reconfigure" >&2
     if [[ "$has_caddyfile" -eq 1 ]]; then
-        echo "  3) Reuse existing Caddyfile and credentials, just restart" >&2
-        echo "  4) Uninstall Caddy/NaiveProxy files managed by this script" >&2
-        echo "  5) Exit, leave system untouched" >&2
+        echo "  3) Show client config" >&2
+        echo "  4) Uninstall" >&2
+        echo "  5) Exit" >&2
     else
-        echo "  3) Uninstall Caddy/NaiveProxy files managed by this script" >&2
-        echo "  4) Exit, leave system untouched" >&2
-        echo "     (option to reuse existing Caddyfile is unavailable: ${CADDYFILE} missing or empty)" >&2
+        echo "  3) Uninstall" >&2
+        echo "  4) Exit" >&2
+        echo "     (Show client config is unavailable: ${CADDYFILE} missing or empty)" >&2
     fi
     echo "" >&2
 
     local choice prompt
     if [[ "$has_caddyfile" -eq 1 ]]; then
-        prompt="Enter 1, 2, 3, 4 or 5: "
+        prompt="Enter choice [1-5]: "
     else
-        prompt="Enter 1, 2, 3 or 4: "
+        prompt="Enter choice [1-4]: "
     fi
 
     while true; do
