@@ -74,6 +74,7 @@ require_cmd() {
 readonly DEFAULT_COVER_MODE="static"
 readonly DEFAULT_MASK_SITE="https://www.lovense.com"
 readonly DEFAULT_STATIC_ROOT="/var/www/naive-cover"
+readonly PREBUILT_CADDY_URL="https://github.com/klzgrad/forwardproxy/releases/latest/download/caddy-forwardproxy-naive.tar.xz"
 readonly CADDY_BIN="/usr/bin/caddy"
 readonly CADDY_DIR="/etc/caddy"
 readonly CADDYFILE="${CADDY_DIR}/Caddyfile"
@@ -420,7 +421,7 @@ gather_inputs() {
 #─────────────────────────────────────────────────────────────────────────────
 
 install_dependencies() {
-    local pkgs=(curl wget ca-certificates dnsutils iproute2 procps openssl tar qrencode)
+    local pkgs=(curl wget ca-certificates dnsutils iproute2 procps openssl tar xz-utils qrencode)
     local missing=()
     for pkg in "${pkgs[@]}"; do
         if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q '^install ok installed$'; then
@@ -468,6 +469,55 @@ install_go() {
     ok "Installed $(go version)"
 }
 
+verify_caddy_forwardproxy() {
+    local bin="$1"
+    [[ -x "$bin" ]] || return 1
+    "$bin" list-modules 2>/dev/null | grep -Fxq 'http.handlers.forward_proxy'
+}
+
+download_prebuilt_caddy() {
+    if [[ "${NAIVE_CADDY_INSTALL:-auto}" == "build" ]]; then
+        log "Source build forced by NAIVE_CADDY_INSTALL=build"
+        return 1
+    fi
+
+    if [[ "$ARCH" != "amd64" ]]; then
+        warn "Prebuilt Caddy binary is only used on amd64; falling back to source build."
+        return 1
+    fi
+
+    log "Downloading prebuilt Caddy with NaiveProxy support..."
+    local download_dir archive extracted_bin
+    mkdir -p "$TMP_BUILD_DIR"
+    download_dir="$(mktemp -d -p "$TMP_BUILD_DIR" caddy-prebuilt.XXXXXX)"
+    archive="${download_dir}/caddy-forwardproxy-naive.tar.xz"
+
+    if ! wget -q -O "$archive" "$PREBUILT_CADDY_URL"; then
+        warn "Prebuilt Caddy download failed; falling back to source build."
+        rm -rf "$download_dir"
+        return 1
+    fi
+
+    if ! tar -C "$download_dir" -xJf "$archive"; then
+        warn "Failed to extract prebuilt Caddy; falling back to source build."
+        rm -rf "$download_dir"
+        return 1
+    fi
+
+    extracted_bin="$(find "$download_dir" -type f -name caddy -perm /111 | head -n1)"
+    if [[ -z "$extracted_bin" ]] || ! verify_caddy_forwardproxy "$extracted_bin"; then
+        warn "Downloaded Caddy does not include http.handlers.forward_proxy; falling back to source build."
+        rm -rf "$download_dir"
+        return 1
+    fi
+
+    BUILT_CADDY_BIN="${TMP_BUILD_DIR}/caddy.new"
+    install -m 0755 "$extracted_bin" "$BUILT_CADDY_BIN"
+    rm -rf "$download_dir"
+    ok "Downloaded prebuilt Caddy: $($BUILT_CADDY_BIN version | head -n1)"
+    return 0
+}
+
 build_caddy() {
     log "Preparing build environment..."
     mkdir -p "$TMP_BUILD_DIR"
@@ -485,11 +535,21 @@ build_caddy() {
     "${GOPATH}/bin/xcaddy" build \
         --with github.com/caddyserver/forwardproxy=github.com/klzgrad/forwardproxy@naive
     [[ -x ./caddy ]] || die "xcaddy build failed: ./caddy not produced"
+    verify_caddy_forwardproxy ./caddy || die "built Caddy is missing http.handlers.forward_proxy"
     BUILT_CADDY_BIN="${TMP_BUILD_DIR}/caddy.new"
     install -m 0755 ./caddy "$BUILT_CADDY_BIN"
     popd >/dev/null
     rm -rf "$build_dir"
     ok "Caddy built: $BUILT_CADDY_BIN"
+}
+
+prepare_caddy_binary() {
+    if download_prebuilt_caddy; then
+        return 0
+    fi
+
+    install_go
+    build_caddy
 }
 
 install_caddy_binary() {
@@ -821,8 +881,7 @@ main() {
     check_ports
 
     if [[ "$MODE" == "rebuild" || "$MODE" == "fresh" ]]; then
-        install_go
-        build_caddy
+        prepare_caddy_binary
         install_caddy_binary
     fi
 

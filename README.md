@@ -4,7 +4,7 @@ One-command NaiveProxy + Caddy installer for Debian/Ubuntu VPS.
 
 ## Features
 
-- Builds Caddy with `klzgrad/forwardproxy@naive`
+- Downloads prebuilt Caddy with `klzgrad/forwardproxy@naive` on amd64, with source-build fallback
 - Supports local static cover site or reverse-proxy cover site
 - Automatically obtains a Let's Encrypt TLS certificate
 - Generates NaiveProxy credentials, URI, QR code, CLI config, and sing-box outbound JSON
@@ -52,6 +52,8 @@ https://www.lovense.com
 ```
 
 ## Non-interactive Examples
+
+Set `NAIVE_CADDY_INSTALL=build` to force local `xcaddy` source build instead of the default prebuilt amd64 binary.
 
 Static cover:
 
