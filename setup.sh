@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # NaiveProxy + Caddy auto-setup for Debian/Ubuntu VPS.
-# Repository: https://github.com/Ieveltyanna/naive-caddy-installer
+# Repository: https://github.com/ColorSource/naive-caddy-installer
 
 set -euo pipefail
 
