@@ -842,8 +842,8 @@ main() {
     if [[ -x "$CADDY_BIN" ]] || systemctl list-unit-files caddy.service >/dev/null 2>&1; then
         MODE="$(handle_existing_caddy)"
     else
-        log "This installer will build and install Caddy with NaiveProxy, write /etc/caddy/Caddyfile, create caddy.service, and request a Let's Encrypt certificate."
-        confirm "Continue with installation" default-no || die "Aborted by user."
+        log "Install NaiveProxy with Caddy on this server."
+        confirm "Continue" default-no || die "Aborted by user."
         MODE="fresh"
     fi
     log "Install mode: $MODE"
