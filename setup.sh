@@ -179,17 +179,25 @@ check_ports() {
 }
 
 uninstall_caddy_naive() {
-    warn "This will remove Caddy/NaiveProxy files managed by this script."
-    warn "It removes: caddy.service, ${CADDY_BIN}, ${CADDY_DIR}, ${CLIENT_CONFIG}, and ${SINGBOX_CONFIG}."
-    warn "It can also remove the default static cover directory: ${DEFAULT_STATIC_ROOT}."
-    warn "It does NOT remove Go (${GO_INSTALL_DIR}) or your DNS/firewall settings."
-    confirm "Continue uninstall" default-no || die "Aborted by user."
-
     local static_root_to_remove=""
     if [[ -s "$CADDYFILE" ]]; then
         static_root_to_remove="$(awk '/^[[:space:]]*root[[:space:]]+\*[[:space:]]/ {print $3; exit}' "$CADDYFILE")"
     fi
     static_root_to_remove="${static_root_to_remove:-$DEFAULT_STATIC_ROOT}"
+
+    echo >&2
+    warn "This will remove:" >&2
+    echo "    - caddy.service" >&2
+    echo "    - ${CADDY_BIN}" >&2
+    echo "    - ${CADDY_DIR}/" >&2
+    echo "    - generated client configs" >&2
+    echo "    - ${static_root_to_remove}" >&2
+    echo >&2
+    warn "This will keep:" >&2
+    echo "    - Go: ${GO_INSTALL_DIR}" >&2
+    echo "    - DNS/firewall settings" >&2
+    echo >&2
+    confirm "Continue uninstall" default-no || die "Aborted by user."
 
     if systemctl list-unit-files caddy.service >/dev/null 2>&1; then
         log "Stopping and disabling caddy.service..."
@@ -206,12 +214,8 @@ uninstall_caddy_naive() {
     systemctl reset-failed caddy.service >/dev/null 2>&1 || true
 
     if [[ -d "$static_root_to_remove" ]]; then
-        if confirm "Remove static cover directory ${static_root_to_remove}" default-no; then
-            rm -rf "$static_root_to_remove"
-            ok "Removed ${static_root_to_remove}"
-        else
-            warn "Kept ${static_root_to_remove}"
-        fi
+        rm -rf "$static_root_to_remove"
+        ok "Removed ${static_root_to_remove}"
     fi
 
     ok "Uninstall complete."

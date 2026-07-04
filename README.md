@@ -106,7 +106,7 @@ The uninstall option removes:
 - `/etc/caddy/`
 - `/root/naive-client-config.json`
 - `/root/naive-singbox.json`
-- optionally `/var/www/naive-cover`
+- the static cover directory, usually `/var/www/naive-cover`
 
 It does not remove Go, DNS records, or firewall rules.
 
