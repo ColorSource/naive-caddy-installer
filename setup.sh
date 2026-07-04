@@ -174,7 +174,7 @@ check_ports() {
             kill -9 "$busy_pid" 2>/dev/null || true
         fi
     done
-    ok "Ports :80 and :443 are free"
+    ok "Ports 80 and 443 are available"
 }
 
 uninstall_caddy_naive() {
