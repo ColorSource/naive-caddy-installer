@@ -71,7 +71,6 @@ require_cmd() {
 # Constants
 #─────────────────────────────────────────────────────────────────────────────
 
-readonly DEFAULT_COVER_MODE="static"
 readonly DEFAULT_MASK_SITE="https://www.lovense.com"
 readonly DEFAULT_STATIC_ROOT="/var/www/naive-cover"
 readonly PREBUILT_CADDY_URL="https://github.com/klzgrad/forwardproxy/releases/latest/download/caddy-forwardproxy-naive.tar.xz"
@@ -349,8 +348,8 @@ choose_cover_mode() {
     echo "  1) Local static site (served from ${DEFAULT_STATIC_ROOT})" >&2
     echo "  2) Reverse proxy a cover site" >&2
     while true; do
-        read -r -p "Enter 1 or 2 [${DEFAULT_COVER_MODE}]: " choice </dev/tty || return 1
-        choice="${choice:-$DEFAULT_COVER_MODE}"
+        read -r -p "Enter 1 or 2 [1]: " choice </dev/tty || return 1
+        choice="${choice:-1}"
         if mode="$(normalize_cover_mode "$choice")"; then
             printf '%s' "$mode"
             return 0
