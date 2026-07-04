@@ -858,24 +858,24 @@ main() {
     if [[ "$MODE" == "reuse" ]]; then
         parse_existing_caddyfile
         log "Reusing existing Caddyfile:"
-        log "  Domain:     $DOMAIN"
-        log "  Cover mode: $COVER_MODE"
+        log "Domain      : $DOMAIN"
+        log "Cover mode  : $COVER_MODE"
         if [[ "$COVER_MODE" == "static" ]]; then
-            log "  Static root: $STATIC_ROOT"
+            log "Static root : $STATIC_ROOT"
         else
-            log "  Mask site:   $MASK_SITE"
+            log "Cover site  : $MASK_SITE"
         fi
-        log "  User/pass:  preserved from existing config"
+        log "User/pass   : preserved from existing config"
     else
         gather_inputs
         echo
-        log "About to set up NaiveProxy on this server with:"
-        log "  Domain:     $DOMAIN"
-        log "  Cover mode: $COVER_MODE"
+        log "NaiveProxy setup summary:"
+        log "Domain      : $DOMAIN"
+        log "Cover mode  : $COVER_MODE"
         if [[ "$COVER_MODE" == "static" ]]; then
-            log "  Static root: $STATIC_ROOT"
+            log "Static root : $STATIC_ROOT"
         else
-            log "  Mask site:   $MASK_SITE"
+            log "Cover site  : $MASK_SITE"
         fi
         echo
         confirm "Proceed" default-yes || die "Aborted by user."
